@@ -1,0 +1,2 @@
+register,type,data_type,point,scaling,units,access
+30001,input,INT16,Process temperature,x10,°C,R
