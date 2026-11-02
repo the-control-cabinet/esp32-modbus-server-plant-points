@@ -17,6 +17,56 @@
 
 ---
 
+## Status at a glance
+
+| Item | Status |
+|---|---|
+| Register map v1 (input + holding registers, scaling, status bitfield) | 📐 Drafted ([doc 01](docs/01-register-map.md)) |
+| Test plan (FC03/FC04, exceptions, bus loss, PLC client) | 📐 Drafted ([doc 02](docs/02-tests.md)) |
+| RS485 hardware (FTDI adaptor) and Modbus RTU experience | ✅ From the [water metering](https://github.com/the-control-cabinet/mains-water-metering-modbus-rtu) project |
+| ESPHome server component confirmed, first reads from Modbus Poll, CODESYS client | ⏳ To do |
+
+## Why build the server side
+
+Most BMS integration work is reading other people's Modbus devices: getting the register map, the scaling and the word order right. Building the device side once makes those maps make sense: you choose the register types, decide what a status bitfield holds, and see what an exception response looks like from the inside. This ESP32 publishes the rig's plant points so that a PLC (and possibly the Trend controller) can read them like any third-party device.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    S["Rig sensors and pump states"] --> ESP["ESP32<br/>Modbus server (slave)"]
+    ESP -->|"RTU, RS485<br/>9600 8N1"| MP["Modbus Poll<br/>(test)"]
+    ESP -->|"RTU / TCP via gateway"| PLC["CODESYS soft PLC<br/>(PLC re-implementation)"]
+    ESP -.->|"if supported"| TR["Trend IQ411"]
+```
+
+## Register map (v1)
+
+| Register | Type | Point | Scaling | Units | Access |
+|---|---|---|---|---|---|
+| 30001 | Input, INT16 | Process temperature | × 10 | °C | R |
+| 30002 | Input, INT16 | Pump 1 run hours | × 1 | h | R |
+| 30003 | Input, UINT16 | Status bits: pump 1 run, pump 2 run, fault, lockout | bitfield | | R |
+| 40001 | Holding, INT16 | Setpoint | × 10 | °C | R (write in phase 2) |
+
+**Comms:** RTU, 9600 baud, 8N1; function codes 03 and 04 in phase 1, 06/16 in phase 2; byte and word order documented in the CSV, as a manufacturer's map would.
+
+## Tests
+
+| Test | Pass when |
+|---|---|
+| Read input registers (FC04) | Values match the ESP's sensors with correct scaling |
+| Read holding register (FC03) | Setpoint readable |
+| Illegal address | Exception response returned |
+| Bus loss | Client times out cleanly; the ESP keeps running |
+| CODESYS client | Points read into the PLC program |
+
+## Design decisions
+
+- **Read-only first:** a writable setpoint only arrives in phase 2, with limits, so a misbehaving client can't drive the plant.
+- **Integer registers with documented scaling** (× 10) rather than floats, the most portable choice across BMS and PLC clients.
+- **A status bitfield** for discrete states: one register, one read, the way packaged plant usually reports.
+
 ## Documents
 
 | Doc | Contents |
